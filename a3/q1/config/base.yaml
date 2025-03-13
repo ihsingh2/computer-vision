@@ -29,7 +29,7 @@ model_params:
   roi_pos_fraction : 0.25
 
 train_params:
-  task_name: 'st'
+  task_name: 'base'
   seed : 1111
   infer_seed: 1122
   acc_steps : 1 # increase you want to get gradients from >1 steps(kind of mimicking >1 batch size)
@@ -37,3 +37,6 @@ train_params:
   lr_steps : [12, 16]
   lr: 0.001
   ckpt_name: 'faster_rcnn_st.pth'
+  visualize: True
+  resume: False
+  wandb_log: True

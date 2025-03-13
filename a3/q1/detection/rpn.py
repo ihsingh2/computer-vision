@@ -337,6 +337,7 @@ class RegionProposalNetwork(torch.nn.Module):
         images: ImageList,
         features: Dict[str, Tensor],
         targets: Optional[List[Dict[str, Tensor]]] = None,
+        visualize: bool = False
     ) -> Tuple[List[Tensor], Dict[str, Tensor]]:
 
         """
@@ -357,12 +358,13 @@ class RegionProposalNetwork(torch.nn.Module):
         """
         # RPN uses all feature maps that are available
         features = list(features.values())
-        objectness, pred_bbox_deltas = self.head(features)
+        objectness_features, pred_bbox_deltas = self.head(features)
         anchors = self.anchor_generator(images, features)
         num_images = len(anchors)
-        num_anchors_per_level_shape_tensors = [o[0].shape for o in objectness]
+        num_anchors_per_level_shape_tensors = [o[0].shape for o in objectness_features]
         num_anchors_per_level = [s[0] * s[1] * s[2] for s in num_anchors_per_level_shape_tensors]
-        objectness, pred_bbox_deltas = concat_box_prediction_layers(objectness, pred_bbox_deltas)
+        objectness, pred_bbox_deltas = concat_box_prediction_layers(objectness_features, pred_bbox_deltas)
+        objectness_features = [ torch.sigmoid(obj) for obj in objectness_features ]
         # apply pred_bbox_deltas to anchors to obtain the decoded proposals
         # note that we detach the deltas because Faster R-CNN do not backprop through
         # the proposals
@@ -382,4 +384,12 @@ class RegionProposalNetwork(torch.nn.Module):
                 "loss_objectness": loss_objectness,
                 "loss_rpn_box_reg": loss_rpn_box_reg,
             }
-        return boxes, losses
+        if visualize:
+            labels, matched_gt_boxes = self.assign_targets_to_anchors(anchors, targets)
+            sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
+            sampled_pos_inds = [torch.where(sampled_pos_inds[idx])[0][:10] for idx in range(len(sampled_pos_inds))]
+            sampled_neg_inds = [torch.where(sampled_neg_inds[idx])[0][:10] for idx in range(len(sampled_neg_inds))]
+            anchors = [anchors[idx][torch.cat([sampled_pos_inds[idx], sampled_neg_inds[idx]], dim=0)] for idx in range(len(anchors))]
+            return boxes, losses, objectness_features, anchors
+        else:
+            return boxes, losses

@@ -195,7 +195,7 @@ class RoIHeads(nn.Module):
         proposals,  # type: List[Tensor]
         image_shapes,  # type: List[Tuple[int, int]]
     ):
-        # type: (...) -> Tuple[List[Tensor], List[Tensor], List[Tensor]]
+        # type: (...) -> Tuple[List[Tensor], List[Tensor], List[Tensor], List[Tensor]]
         device = class_logits.device
         num_classes = class_logits.shape[-1]
 
@@ -210,7 +210,11 @@ class RoIHeads(nn.Module):
         all_boxes = []
         all_scores = []
         all_labels = []
-        for boxes, scores, image_shape in zip(pred_boxes_list, pred_scores_list, image_shapes):
+        all_proposal_indices = []
+
+        for initial_proposals, boxes, scores, image_shape in zip(proposals, pred_boxes_list, pred_scores_list, image_shapes):
+
+            indices = torch.arange(boxes.shape[0], device=device)
             boxes = box_ops.clip_boxes_to_image(boxes, image_shape)
 
             # create labels for each prediction
@@ -221,31 +225,34 @@ class RoIHeads(nn.Module):
             boxes = boxes[:, 1:]
             scores = scores[:, 1:]
             labels = labels[:, 1:]
+            indices = indices.unsqueeze(1).expand_as(scores) # Expand indices to match scores
 
             # batch everything, by making every class prediction be a separate instance
             boxes = boxes.reshape(-1, 4)
             scores = scores.reshape(-1)
             labels = labels.reshape(-1)
+            indices = indices.reshape(-1)
 
             # remove low scoring boxes
             inds = torch.where(scores > self.score_thresh)[0]
-            boxes, scores, labels = boxes[inds], scores[inds], labels[inds]
+            boxes, scores, labels, indices = boxes[inds], scores[inds], labels[inds], indices[inds]
 
             # remove empty boxes
             keep = box_ops.remove_small_boxes(boxes, min_size=1e-2)
-            boxes, scores, labels = boxes[keep], scores[keep], labels[keep]
+            boxes, scores, labels, indices = boxes[keep], scores[keep], labels[keep], indices[keep]
 
             # non-maximum suppression, independently done per class
             keep = box_ops.batched_nms(boxes, scores, labels, self.nms_thresh)
             # keep only topk scoring predictions
             keep = keep[: self.detections_per_img]
-            boxes, scores, labels = boxes[keep], scores[keep], labels[keep]
+            boxes, scores, labels, indices = boxes[keep], scores[keep], labels[keep], indices[keep]
 
             all_boxes.append(boxes)
             all_scores.append(scores)
             all_labels.append(labels)
+            all_proposal_indices.append(indices)
 
-        return all_boxes, all_scores, all_labels
+        return all_boxes, all_scores, all_labels, all_proposal_indices
 
     def forward(
         self,
@@ -292,7 +299,8 @@ class RoIHeads(nn.Module):
             loss_classifier, loss_box_reg = fastrcnn_loss(class_logits, box_regression, labels, regression_targets)
             losses = {"loss_classifier": loss_classifier, "loss_box_reg": loss_box_reg}
         else:
-            boxes, scores, labels = self.postprocess_detections(class_logits, box_regression, proposals, image_shapes)
+            boxes, scores, labels, proposal_indices = self.postprocess_detections(class_logits, box_regression, proposals, image_shapes)
+            proposals = [ proposals[idx][proposal_indices[idx]] for idx in range(len(proposals)) ]
             num_images = len(boxes)
             for i in range(num_images):
                 result.append(
@@ -300,6 +308,7 @@ class RoIHeads(nn.Module):
                         "boxes": boxes[i],
                         "labels": labels[i],
                         "scores": scores[i],
+                        "proposals": proposals[i],
                     }
                 )
 

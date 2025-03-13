@@ -10,6 +10,7 @@ import torch
 from torch import nn, Tensor
 
 from torchvision.utils import _log_api_usage_once
+from .transform import resize_boxes
 
 
 class GeneralizedRCNN(nn.Module):
@@ -43,8 +44,8 @@ class GeneralizedRCNN(nn.Module):
 
         return detections
 
-    def forward(self, images, targets=None):
-        # type: (List[Tensor], Optional[List[Dict[str, Tensor]]]) -> Tuple[Dict[str, Tensor], List[Dict[str, Tensor]]]
+    def forward(self, images, targets=None, visualize=False):
+        # type: (List[Tensor], Optional[List[Dict[str, Tensor]]]), bool -> Tuple[Dict[str, Tensor], List[Dict[str, Tensor]]]
         """
         Args:
             images (list[Tensor]): images to be processed
@@ -101,7 +102,10 @@ class GeneralizedRCNN(nn.Module):
         features = self.backbone(images.tensors)
         if isinstance(features, torch.Tensor):
             features = OrderedDict([("0", features)])
-        proposals, proposal_losses = self.rpn(images, features, targets)
+        if visualize:
+            proposals, proposal_losses, objectness, anchors = self.rpn(images, features, targets, visualize)
+        else:
+            proposals, proposal_losses = self.rpn(images, features, targets)
         detections, detector_losses = self.roi_heads(features, proposals, images.image_sizes, targets)
         detections = self.transform.postprocess(detections, images.image_sizes, original_image_sizes)  # type: ignore[operator]
 
@@ -114,5 +118,12 @@ class GeneralizedRCNN(nn.Module):
                 warnings.warn("RCNN always returns a (Losses, Detections) tuple in scripting")
                 self._has_warned = True
             return losses, detections
+
+        if visualize:
+            for idx in range(len(original_image_sizes)):
+                anchors[idx] = resize_boxes(anchors[idx], images.image_sizes[idx], original_image_sizes[idx])
+                proposals[idx] = resize_boxes(proposals[idx], images.image_sizes[idx], original_image_sizes[idx])
+                detections[idx]["proposals"] = resize_boxes(detections[idx]["proposals"], images.image_sizes[idx], original_image_sizes[idx])
+            return objectness, proposals, anchors, detections
         else:
             return self.eager_outputs(losses, detections)
