@@ -13,8 +13,9 @@ import cv2
 import matplotlib.pyplot as plt
 import wandb
 
-from detection.faster_rcnn import fasterrcnn_resnet50_fpn, FastRCNNPredictor
 from detection.anchor_utils import AnchorGenerator
+from detection.faster_rcnn import fasterrcnn_resnet50_fpn, FastRCNNPredictor
+from detection.rpn import RPNHead
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -94,6 +95,7 @@ def train(args):
     ########################
 
     dataset_config = config['dataset_params']
+    model_config = config['model_params']
     train_config = config['train_params']
 
     if train_config['wandb_log']:
@@ -124,7 +126,16 @@ def train(args):
     faster_rcnn_model = fasterrcnn_resnet50_fpn(pretrained=True,
                                                 min_size=600,
                                                 max_size=1000,
+                                                rpn_pre_nms_top_n_train=model_config['rpn_train_prenms_topk'],
+                                                rpn_pre_nms_top_n_test=model_config['rpn_test_prenms_topk'],
+                                                rpn_post_nms_top_n_train=model_config['rpn_train_topk'],
+                                                rpn_post_nms_top_n_test=model_config['rpn_test_topk'],
+                                                rpn_nms_thresh=0.7,
     )
+    faster_rcnn_model.rpn.anchor_generator = AnchorGenerator( \
+                            model_config['scales'], model_config['aspect_ratios'])
+    faster_rcnn_model.rpn.head = RPNHead(faster_rcnn_model.backbone.out_channels, \
+                            faster_rcnn_model.rpn.anchor_generator.num_anchors_per_location()[0])
     faster_rcnn_model.roi_heads.box_predictor = FastRCNNPredictor(
         faster_rcnn_model.roi_heads.box_predictor.cls_score.in_features,
         num_classes=dataset_config['num_classes'])

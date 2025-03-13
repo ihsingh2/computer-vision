@@ -5,7 +5,7 @@ dataset_params:
 model_params:
   im_channels : 3
   aspect_ratios: [0.5, 1, 2]
-  scales: [128, 256, 512]
+  scales: [32, 64, 128, 256, 512]
   min_im_size : 600
   max_im_size : 1000
   backbone_out_channels : 512
@@ -13,10 +13,10 @@ model_params:
   rpn_bg_threshold : 0.3
   rpn_fg_threshold : 0.7
   rpn_nms_threshold : 0.7
-  rpn_train_prenms_topk : 12000
-  rpn_test_prenms_topk : 6000
+  rpn_train_prenms_topk : 2000
+  rpn_test_prenms_topk : 1000
   rpn_train_topk : 2000
-  rpn_test_topk : 300
+  rpn_test_topk : 1000
   rpn_batch_size : 256
   rpn_pos_fraction : 0.5
   roi_iou_threshold : 0.5

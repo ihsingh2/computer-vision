@@ -12,11 +12,11 @@ model_params:
   fc_inner_dim : 1024
   rpn_bg_threshold : 0.3
   rpn_fg_threshold : 0.7
-  rpn_nms_threshold : 0.7
-  rpn_train_prenms_topk : 12000
-  rpn_test_prenms_topk : 6000
-  rpn_train_topk : 2000
-  rpn_test_topk : 300
+  rpn_nms_threshold : 0.85
+  rpn_train_prenms_topk : 2000
+  rpn_test_prenms_topk : 1000
+  rpn_train_topk : 1000
+  rpn_test_topk : 500
   rpn_batch_size : 256
   rpn_pos_fraction : 0.5
   roi_iou_threshold : 0.5
@@ -29,7 +29,7 @@ model_params:
   roi_pos_fraction : 0.25
 
 train_params:
-  task_name: 'scale'
+  task_name: 'proposal'
   seed : 1111
   infer_seed: 1122
   acc_steps : 1 # increase you want to get gradients from >1 steps(kind of mimicking >1 batch size)
