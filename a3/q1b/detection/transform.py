@@ -309,10 +309,10 @@ def resize_boxes(boxes: Tensor, original_size: List[int], new_size: List[int]) -
         for s, s_orig in zip(new_size, original_size)
     ]
     ratio_height, ratio_width = ratios
-    xmin, ymin, xmax, ymax = boxes.unbind(1)
+    xmin, ymin, xmax, ymax, angle = boxes.unbind(1)
 
     xmin = xmin * ratio_width
     xmax = xmax * ratio_width
     ymin = ymin * ratio_height
     ymax = ymax * ratio_height
-    return torch.stack((xmin, ymin, xmax, ymax), dim=1)
+    return torch.stack((xmin, ymin, xmax, ymax, angle), dim=1)

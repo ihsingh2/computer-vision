@@ -9,7 +9,7 @@ from torchvision.ops import boxes as box_ops, roi_align
 from . import _utils as det_utils
 
 
-def fastrcnn_loss(class_logits, box_regression, labels, regression_targets):
+def fastrcnn_loss(class_logits, box_regression, angles, labels, regression_targets, angle_targets):
     # type: (Tensor, Tensor, List[Tensor], List[Tensor]) -> Tuple[Tensor, Tensor]
     """
     Computes the loss for Faster R-CNN.
@@ -17,8 +17,10 @@ def fastrcnn_loss(class_logits, box_regression, labels, regression_targets):
     Args:
         class_logits (Tensor)
         box_regression (Tensor)
+        angles (Tensor)
         labels (list[BoxList])
-        regression_targets (Tensor)
+        regression_targets (list[Tensor])
+        angle_targets (list[Tensor])
 
     Returns:
         classification_loss (Tensor)
@@ -27,6 +29,7 @@ def fastrcnn_loss(class_logits, box_regression, labels, regression_targets):
 
     labels = torch.cat(labels, dim=0)
     regression_targets = torch.cat(regression_targets, dim=0)
+    angle_targets = torch.cat(angle_targets, dim=0)
 
     classification_loss = F.cross_entropy(class_logits, labels)
 
@@ -46,7 +49,12 @@ def fastrcnn_loss(class_logits, box_regression, labels, regression_targets):
     )
     box_loss = box_loss / labels.numel()
 
-    return classification_loss, box_loss
+    if angles.shape[1] == 1:
+        angle_loss = torch.sqrt(F.mse_loss(torch.clamp(angles.reshape(-1), min=0, max=180) / 18, angle_targets / 18))
+    else:
+        angle_loss = F.cross_entropy(angles, (angle_targets // (180 // angles.shape[1])).long())
+
+    return classification_loss, box_loss, angle_loss
 
 class RoIHeads(nn.Module):
     __annotations__ = {
@@ -106,7 +114,7 @@ class RoIHeads(nn.Module):
                 labels_in_image = torch.zeros((proposals_in_image.shape[0],), dtype=torch.int64, device=device)
             else:
                 #  set to self.box_similarity when https://github.com/pytorch/pytorch/issues/27495 lands
-                match_quality_matrix = box_ops.box_iou(gt_boxes_in_image, proposals_in_image)
+                match_quality_matrix = box_ops.box_iou(gt_boxes_in_image[:, :4], proposals_in_image)
                 matched_idxs_in_image = self.proposal_matcher(match_quality_matrix)
 
                 clamped_matched_idxs_in_image = matched_idxs_in_image.clamp(min=0)
@@ -137,7 +145,7 @@ class RoIHeads(nn.Module):
 
     def add_gt_proposals(self, proposals, gt_boxes):
         # type: (List[Tensor], List[Tensor]) -> List[Tensor]
-        proposals = [torch.cat((proposal, gt_box)) for proposal, gt_box in zip(proposals, gt_boxes)]
+        proposals = [torch.cat((proposal, gt_box[:, :4])) for proposal, gt_box in zip(proposals, gt_boxes)]
 
         return proposals
 
@@ -173,6 +181,7 @@ class RoIHeads(nn.Module):
         # sample a fixed proportion of positive-negative proposals
         sampled_inds = self.subsample(labels)
         matched_gt_boxes = []
+        angle_targets = []
         num_images = len(proposals)
         for img_id in range(num_images):
             img_sampled_inds = sampled_inds[img_id]
@@ -183,15 +192,17 @@ class RoIHeads(nn.Module):
             gt_boxes_in_image = gt_boxes[img_id]
             if gt_boxes_in_image.numel() == 0:
                 gt_boxes_in_image = torch.zeros((1, 4), dtype=dtype, device=device)
-            matched_gt_boxes.append(gt_boxes_in_image[matched_idxs[img_id]])
+            matched_gt_boxes.append(gt_boxes_in_image[matched_idxs[img_id]][:, :4])
+            angle_targets.append(gt_boxes_in_image[matched_idxs[img_id]][:, 4])
 
         regression_targets = self.box_coder.encode(matched_gt_boxes, proposals)
-        return proposals, matched_idxs, labels, regression_targets
+        return proposals, matched_idxs, labels, regression_targets, angle_targets
 
     def postprocess_detections(
         self,
         class_logits,  # type: Tensor
         box_regression,  # type: Tensor
+        angles,      # type: Tensor
         proposals,  # type: List[Tensor]
         image_shapes,  # type: List[Tuple[int, int]]
     ):
@@ -203,16 +214,22 @@ class RoIHeads(nn.Module):
         pred_boxes = self.box_coder.decode(box_regression, proposals)
 
         pred_scores = F.softmax(class_logits, -1)
+        if angles.shape[1] != 1:
+            pred_angles = torch.argmax(angles, -1) * (180 // angles.shape[1])
+        else:
+            pred_angles = angles
 
         pred_boxes_list = pred_boxes.split(boxes_per_image, 0)
         pred_scores_list = pred_scores.split(boxes_per_image, 0)
+        pred_angles_list = pred_angles.split(boxes_per_image, 0)
 
         all_boxes = []
         all_scores = []
         all_labels = []
         all_proposal_indices = []
+        all_angles = []
 
-        for initial_proposals, boxes, scores, image_shape in zip(proposals, pred_boxes_list, pred_scores_list, image_shapes):
+        for initial_proposals, boxes, scores, angles_per_img, image_shape in zip(proposals, pred_boxes_list, pred_scores_list, pred_angles_list, image_shapes):
 
             indices = torch.arange(boxes.shape[0], device=device)
             boxes = box_ops.clip_boxes_to_image(boxes, image_shape)
@@ -231,28 +248,30 @@ class RoIHeads(nn.Module):
             boxes = boxes.reshape(-1, 4)
             scores = scores.reshape(-1)
             labels = labels.reshape(-1)
+            angles_per_img = angles_per_img.reshape(-1)
             indices = indices.reshape(-1)
 
             # remove low scoring boxes
             inds = torch.where(scores > self.score_thresh)[0]
-            boxes, scores, labels, indices = boxes[inds], scores[inds], labels[inds], indices[inds]
+            boxes, scores, labels, indices, angles_per_img = boxes[inds], scores[inds], labels[inds], indices[inds], angles_per_img[inds]
 
             # remove empty boxes
             keep = box_ops.remove_small_boxes(boxes, min_size=1e-2)
-            boxes, scores, labels, indices = boxes[keep], scores[keep], labels[keep], indices[keep]
+            boxes, scores, labels, indices, angles_per_img = boxes[keep], scores[keep], labels[keep], indices[keep], angles_per_img[keep]
 
             # non-maximum suppression, independently done per class
             keep = box_ops.batched_nms(boxes, scores, labels, self.nms_thresh)
             # keep only topk scoring predictions
             keep = keep[: self.detections_per_img]
-            boxes, scores, labels, indices = boxes[keep], scores[keep], labels[keep], indices[keep]
+            boxes, scores, labels, indices, angles_per_img = boxes[keep], scores[keep], labels[keep], indices[keep], angles_per_img[keep]
 
             all_boxes.append(boxes)
             all_scores.append(scores)
             all_labels.append(labels)
             all_proposal_indices.append(indices)
+            all_angles.append(angles_per_img)
 
-        return all_boxes, all_scores, all_labels, all_proposal_indices
+        return all_boxes, all_scores, all_labels, all_proposal_indices, all_angles
 
     def forward(
         self,
@@ -279,7 +298,7 @@ class RoIHeads(nn.Module):
                     raise TypeError(f"target labels must of int64 type, instead got {t['labels'].dtype}")
 
         if self.training:
-            proposals, matched_idxs, labels, regression_targets = self.select_training_samples(proposals, targets)
+            proposals, matched_idxs, labels, regression_targets, angle_targets = self.select_training_samples(proposals, targets)
         else:
             labels = None
             regression_targets = None
@@ -287,7 +306,7 @@ class RoIHeads(nn.Module):
 
         box_features = self.box_roi_pool(features, proposals, image_shapes)
         box_features = self.box_head(box_features)
-        class_logits, box_regression = self.box_predictor(box_features)
+        class_logits, box_regression, angles = self.box_predictor(box_features)
 
         result: List[Dict[str, torch.Tensor]] = []
         losses = {}
@@ -296,10 +315,11 @@ class RoIHeads(nn.Module):
                 raise ValueError("labels cannot be None")
             if regression_targets is None:
                 raise ValueError("regression_targets cannot be None")
-            loss_classifier, loss_box_reg = fastrcnn_loss(class_logits, box_regression, labels, regression_targets)
-            losses = {"loss_classifier": loss_classifier, "loss_box_reg": loss_box_reg}
+            loss_classifier, loss_box_reg, loss_angle = fastrcnn_loss(class_logits, box_regression, angles, labels, regression_targets, angle_targets)
+            losses = {"loss_classifier": loss_classifier, "loss_box_reg": loss_box_reg, "loss_angle": loss_angle}
         else:
-            boxes, scores, labels, proposal_indices = self.postprocess_detections(class_logits, box_regression, proposals, image_shapes)
+            boxes, scores, labels, proposal_indices, angles = self.postprocess_detections(class_logits, box_regression, angles, proposals, image_shapes)
+            boxes = [ torch.hstack((boxes[idx], angles[idx].reshape(-1, 1))) for idx in range(len(boxes)) ]
             proposals = [ proposals[idx][proposal_indices[idx]] for idx in range(len(proposals)) ]
             num_images = len(boxes)
             for i in range(num_images):

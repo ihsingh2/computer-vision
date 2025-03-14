@@ -10,9 +10,10 @@ from torch.utils.data.dataset import Dataset
 import json
 
 class SceneTextDataset(Dataset):
-    def __init__(self, split, root_dir):
+    def __init__(self, split, root_dir, image_augmentation=False):
         self.split = split
         self.root_dir = root_dir
+        self.image_augmentation = image_augmentation
         self.im_dir = os.path.join(root_dir, 'img')
         self.ann_dir = os.path.join(root_dir, 'annots')
         classes = [
@@ -37,12 +38,12 @@ class SceneTextDataset(Dataset):
         return len(self.images)
     
     def convert_xcycwh_to_xyxy(self, box):
-        x, y, w, h = box
+        x, y, w, h, theta = box
         x1 = x - w/2
         y1 = y - h/2
         x2 = x + w/2
         y2 = y + h/2
-        return [x1, y1, x2, y2]
+        return [x1, y1, x2, y2, theta]
     
     def __getitem__(self, index):
         im_path = self.images[index]
@@ -57,10 +58,16 @@ class SceneTextDataset(Dataset):
             yc = [detec['obb']['yc'] for detec in im_info['objects']]
             w = [detec['obb']['w'] for detec in im_info['objects']]
             h = [detec['obb']['h'] for detec in im_info['objects']]
-            
-            # read the angles here as well from the json file...
-            
-            boxes = [self.convert_xcycwh_to_xyxy([xc[i], yc[i], w[i], h[i]]) for i in range(len(xc))]
+            theta = [detec['obb']['theta'] for detec in im_info['objects']]
+
+            if self.image_augmentation and random.random() < 0.5:
+                im_tensor = torchvision.transforms.functional.hflip(im_tensor)
+                im_width = im_tensor.shape[-1]
+                for i in range(len(xc)):
+                    xc[i] = im_width - 1 - xc[i]
+                    theta[i] = 180 - theta[i]
+
+            boxes = [self.convert_xcycwh_to_xyxy([xc[i], yc[i], w[i], h[i], theta[i]]) for i in range(len(xc))]
             
         targets['bboxes'] = torch.as_tensor(boxes).float()
         targets['labels'] = torch.as_tensor(torch.ones(len(im_info['objects'])).long())

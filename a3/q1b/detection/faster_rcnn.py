@@ -306,6 +306,7 @@ class FastRCNNPredictor(nn.Module):
         super().__init__()
         self.cls_score = nn.Linear(in_channels, num_classes)
         self.bbox_pred = nn.Linear(in_channels, num_classes * 4)
+        self.angle_pred = None
 
     def forward(self, x):
         if x.dim() == 4:
@@ -316,8 +317,9 @@ class FastRCNNPredictor(nn.Module):
         x = x.flatten(start_dim=1)
         scores = self.cls_score(x)
         bbox_deltas = self.bbox_pred(x)
+        angles = self.angle_pred(x)
 
-        return scores, bbox_deltas
+        return scores, bbox_deltas, angles
 
 _COMMON_META = {
     "categories": _COCO_CATEGORIES,

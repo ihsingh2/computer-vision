@@ -44,7 +44,7 @@ class GeneralizedRCNN(nn.Module):
 
         return detections
 
-    def forward(self, images, targets=None, visualize=False):
+    def forward(self, images, targets=None):
         # type: (List[Tensor], Optional[List[Dict[str, Tensor]]]), bool -> Tuple[Dict[str, Tensor], List[Dict[str, Tensor]]]
         """
         Args:
@@ -66,7 +66,7 @@ class GeneralizedRCNN(nn.Module):
                     boxes = target["boxes"]
                     if isinstance(boxes, torch.Tensor):
                         torch._assert(
-                            len(boxes.shape) == 2 and boxes.shape[-1] == 4,
+                            len(boxes.shape) == 2 and boxes.shape[-1] == 5,
                             f"Expected target boxes to be a tensor of shape [N, 4], got {boxes.shape}.",
                         )
                     else:
@@ -88,7 +88,7 @@ class GeneralizedRCNN(nn.Module):
         if targets is not None:
             for target_idx, target in enumerate(targets):
                 boxes = target["boxes"]
-                degenerate_boxes = boxes[:, 2:] <= boxes[:, :2]
+                degenerate_boxes = boxes[:, 2:4] <= boxes[:, :2]
                 if degenerate_boxes.any():
                     # print the first degenerate box
                     bb_idx = torch.where(degenerate_boxes.any(dim=1))[0][0]
@@ -102,10 +102,7 @@ class GeneralizedRCNN(nn.Module):
         features = self.backbone(images.tensors)
         if isinstance(features, torch.Tensor):
             features = OrderedDict([("0", features)])
-        if visualize:
-            proposals, proposal_losses, objectness, anchors = self.rpn(images, features, targets, visualize)
-        else:
-            proposals, proposal_losses = self.rpn(images, features, targets)
+        proposals, proposal_losses = self.rpn(images, features, targets)
         detections, detector_losses = self.roi_heads(features, proposals, images.image_sizes, targets)
         detections = self.transform.postprocess(detections, images.image_sizes, original_image_sizes)  # type: ignore[operator]
 
@@ -119,11 +116,4 @@ class GeneralizedRCNN(nn.Module):
                 self._has_warned = True
             return losses, detections
 
-        if visualize:
-            for idx in range(len(original_image_sizes)):
-                anchors[idx] = resize_boxes(anchors[idx], images.image_sizes[idx], original_image_sizes[idx])
-                proposals[idx] = resize_boxes(proposals[idx], images.image_sizes[idx], original_image_sizes[idx])
-                detections[idx]["proposals"] = resize_boxes(detections[idx]["proposals"], images.image_sizes[idx], original_image_sizes[idx])
-            return objectness, proposals, anchors, detections
-        else:
-            return self.eager_outputs(losses, detections)
+        return self.eager_outputs(losses, detections)

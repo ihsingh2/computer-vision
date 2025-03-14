@@ -20,7 +20,7 @@ model_params:
   rpn_batch_size : 256
   rpn_pos_fraction : 0.5
   roi_iou_threshold : 0.5
-  roi_low_bg_iou : 0.0 # increase it to 0.1 for hard negative
+  roi_low_bg_iou : 0.0                # increase it to 0.1 for hard negative
   roi_pool_size : 7
   roi_nms_threshold : 0.3
   roi_topk_detections : 100
@@ -29,14 +29,18 @@ model_params:
   roi_pos_fraction : 0.25
 
 train_params:
-  task_name: 'base'
+  task_name: 'classification'
   seed : 1111
   infer_seed: 1122
-  acc_steps : 1 # increase you want to get gradients from >1 steps(kind of mimicking >1 batch size)
-  num_epochs: 100
-  lr_steps : [12, 16]
+  acc_steps : 1                       # increase you want to get gradients from >1 steps(kind of mimicking >1 batch size)
+  num_epochs: 25
+  lr_steps : [8, 12]
   lr: 0.001
   ckpt_name: 'faster_rcnn_st.pth'
   visualize: True
   resume: False
   wandb_log: True
+  angle_prediction: 'classification'  # Options: ['regression', 'classification']
+  angle_step_size: 10                 # Ignored if angle_prediction='regression'
+  angle_loss_weight: 1
+  image_augmentation: False

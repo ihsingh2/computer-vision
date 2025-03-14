@@ -205,7 +205,7 @@ class RegionProposalNetwork(torch.nn.Module):
                 matched_gt_boxes_per_image = torch.zeros(anchors_per_image.shape, dtype=torch.float32, device=device)
                 labels_per_image = torch.zeros((anchors_per_image.shape[0],), dtype=torch.float32, device=device)
             else:
-                match_quality_matrix = self.box_similarity(gt_boxes, anchors_per_image)
+                match_quality_matrix = self.box_similarity(gt_boxes[:, :4], anchors_per_image)
                 matched_idxs = self.proposal_matcher(match_quality_matrix)
                 # get the targets corresponding GT for each proposal
                 # NB: need to clamp the indices because we can have a single
@@ -336,8 +336,7 @@ class RegionProposalNetwork(torch.nn.Module):
         self,
         images: ImageList,
         features: Dict[str, Tensor],
-        targets: Optional[List[Dict[str, Tensor]]] = None,
-        visualize: bool = False
+        targets: Optional[List[Dict[str, Tensor]]] = None
     ) -> Tuple[List[Tensor], Dict[str, Tensor]]:
 
         """
@@ -358,18 +357,16 @@ class RegionProposalNetwork(torch.nn.Module):
         """
         # RPN uses all feature maps that are available
         features = list(features.values())
-        objectness_features, pred_bbox_deltas = self.head(features)
+        objectness, pred_bbox_deltas = self.head(features)
         anchors = self.anchor_generator(images, features)
-        num_images = len(anchors)
-        num_anchors_per_level_shape_tensors = [o[0].shape for o in objectness_features]
+        num_anchors_per_level_shape_tensors = [o[0].shape for o in objectness]
         num_anchors_per_level = [s[0] * s[1] * s[2] for s in num_anchors_per_level_shape_tensors]
-        objectness, pred_bbox_deltas = concat_box_prediction_layers(objectness_features, pred_bbox_deltas)
-        objectness_features = [ torch.sigmoid(obj) for obj in objectness_features ]
+        objectness, pred_bbox_deltas = concat_box_prediction_layers(objectness, pred_bbox_deltas)
         # apply pred_bbox_deltas to anchors to obtain the decoded proposals
         # note that we detach the deltas because Faster R-CNN do not backprop through
         # the proposals
         proposals = self.box_coder.decode(pred_bbox_deltas.detach(), anchors)
-        proposals = proposals.view(num_images, -1, 4)
+        proposals = proposals.view(len(anchors), -1, 4)
         boxes, scores = self.filter_proposals(proposals, objectness, images.image_sizes, num_anchors_per_level)
         losses = {}
         if self.training:
@@ -384,12 +381,4 @@ class RegionProposalNetwork(torch.nn.Module):
                 "loss_objectness": loss_objectness,
                 "loss_rpn_box_reg": loss_rpn_box_reg,
             }
-        if visualize:
-            labels, matched_gt_boxes = self.assign_targets_to_anchors(anchors, targets)
-            sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
-            sampled_pos_inds = [torch.where(sampled_pos_inds[idx])[0][:10] for idx in range(len(sampled_pos_inds))]
-            sampled_neg_inds = [torch.where(sampled_neg_inds[idx])[0][:10] for idx in range(len(sampled_neg_inds))]
-            anchors = [anchors[idx][torch.cat([sampled_pos_inds[idx], sampled_neg_inds[idx]], dim=0)] for idx in range(len(anchors))]
-            return boxes, losses, objectness_features, anchors
-        else:
-            return boxes, losses
+        return boxes, losses
