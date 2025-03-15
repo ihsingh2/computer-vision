@@ -52,7 +52,8 @@ def fastrcnn_loss(class_logits, box_regression, angles, labels, regression_targe
     if angles.shape[1] == 1:
         angle_loss = torch.sqrt(F.mse_loss(torch.clamp(angles.reshape(-1), min=0, max=180) / 18, angle_targets / 18))
     else:
-        angle_loss = F.cross_entropy(angles, (angle_targets // (180 // angles.shape[1])).long())
+        num_bins = 180 // angles.shape[1]
+        angle_loss = F.cross_entropy(angles, torch.clip(torch.round(angle_targets / num_bins), 0, num_bins - 1).long())
 
     return classification_loss, box_loss, angle_loss
 

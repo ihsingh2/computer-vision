@@ -41,6 +41,6 @@ train_params:
   resume: False
   wandb_log: True
   angle_prediction: 'classification'  # Options: ['regression', 'classification']
-  angle_step_size: 10                 # Ignored if angle_prediction='regression'
+  angle_step_size: 1                  # Ignored if angle_prediction='regression'
   angle_loss_weight: 1
   image_augmentation: True

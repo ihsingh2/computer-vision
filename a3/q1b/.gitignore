@@ -1,2 +1,8 @@
+augmentation/
+bin_size_1/
+bin_size_10/
 classification/
 regression/
+weight_1/
+weight_10/
+weight_e-1/

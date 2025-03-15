@@ -29,7 +29,7 @@ model_params:
   roi_pos_fraction : 0.25
 
 train_params:
-  task_name: 'bin_10'
+  task_name: 'bin_size_10'
   seed : 1111
   infer_seed: 1122
   acc_steps : 1                       # increase you want to get gradients from >1 steps(kind of mimicking >1 batch size)
