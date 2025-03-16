@@ -12,7 +12,7 @@ model_params:
   fc_inner_dim : 1024
   rpn_bg_threshold : 0.3
   rpn_fg_threshold : 0.7
-  rpn_nms_threshold : 0.85
+  rpn_nms_threshold : 0.7
   rpn_train_prenms_topk : 2000
   rpn_test_prenms_topk : 1000
   rpn_train_topk : 1000
