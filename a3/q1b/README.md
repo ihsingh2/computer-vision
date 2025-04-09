@@ -34,7 +34,7 @@
 
 Two types of models were broadly noticed in bounding box visualization. One class predicting images like the ones given in left (e.g. models with larger bin sizes, regression output, higher angle loss weight) and others collapsing to zero angle trivial solutions like the ones in right.
 
-<!-- <img src="visualization/pred_1_1.png" height="350"/>
+<img src="visualization/pred_1_1.png" height="350"/>
 <img src="visualization/pred_1_2.png" height="350"/>
 
 <img src="visualization/pred_2_1.png" height="350"/>
@@ -44,7 +44,7 @@ Two types of models were broadly noticed in bounding box visualization. One clas
 <img src="visualization/pred_3_2.png" height="350"/>
 
 <img src="visualization/pred_4_1.png" height="350"/>
-<img src="visualization/pred_4_2.png" height="350"/> -->
+<img src="visualization/pred_4_2.png" height="350"/>
 
 #### Analysis
 
